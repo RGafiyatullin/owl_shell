@@ -16,10 +16,6 @@ init_it( Sup, PathToSock ) ->
 
 accept_loop( ConnSupSup, GenUnix, LSockFD ) ->
 	{ok, SockFD} = gen_unix:accept( GenUnix, LSockFD ),
-	{ok, ShellSrv} = supervisor:start_child( ConnSupSup, [ SockFD ] ),
-	ok = io:format(
-		"GenUnix: ~p; LSockFD: ~p; SockFD: ~p; ShellSrv: ~p~n",
-		[ GenUnix, LSockFD, SockFD, ShellSrv ]),
-
+	{ok, _ShellSrv} = supervisor:start_child( ConnSupSup, [ SockFD ] ),
 	accept_loop( ConnSupSup, GenUnix, LSockFD ).
 
