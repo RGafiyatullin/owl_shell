@@ -58,8 +58,15 @@ eval_loop( S0 = #s{ io = IO } ) ->
 			case Request of
 				{ put_chars, _Enc, Chars } ->
 					?io:write( IO, Chars );
+				{ put_chars, Chars } ->
+					?io:write( IO, Chars );
+
 				{ put_chars, _Enc, M, F, A } ->
 					?io:write( IO, erlang:apply( M, F, A ) );
+				{ put_chars, M, F, A } ->
+					?io:write( IO, erlang:apply( M, F, A ) );
+
+
 				_ ->
 					?io:write( IO, io_lib:format( "UNKNOWN-IO-REQUEST: ~p~n", [ Request ] ) )
 			end,
@@ -84,7 +91,7 @@ handle_io_data( Data, S0 = #s{ io = _IO, token_q = TokQ0 } ) ->
 			% io:format("\tTokens: ~p~n", [ Tokens ]),
 			TokQ1 = lists:foldl( fun queue:in/2, TokQ0, Tokens ),
 			handle_io_data_process_token_queue( S0 #s{ token_q = TokQ1 } );
-		{error, ErrorInfo, ErrorLocation} ->
+		{error, _ErrorInfo, _ErrorLocation} ->
 			% io:format("\tError: ~p (~p)~n", [ ErrorInfo, ErrorLocation ]),
 			eval_loop( S0 )
 	end.

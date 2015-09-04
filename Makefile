@@ -8,7 +8,6 @@ all: get-deps compile
 console:
 	$(RM) ./test.sock
 	erl \
-		-sname owl_router \
 		-pa ebin \
 		-pa deps/*/ebin \
 		\
