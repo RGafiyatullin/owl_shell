@@ -1,11 +1,16 @@
 -module (owl_shell_conn).
--export ([start_link/3]).
+-export ([start_link/3, post_result/4]).
 -export ([init_it/3]).
 
 -define(io, owl_shell_conn_io).
+-define(post_result( SessionID, RID, Value ), { SessionID, RID, Value }).
 
 -spec start_link( pid(), pid(), pid() ) -> {ok, pid()}.
 start_link( TopSup, ConnSupSup, ConnSup ) -> proc_lib:start_link( ?MODULE, init_it, [ TopSup, ConnSupSup, ConnSup ] ).
+
+post_result( Connection, SessionID, RID, Result ) ->
+	_ = erlang:send( Connection, ?post_result( SessionID, RID, Result ) ),
+	ok.
 
 -record( s, {
 		'#module' = ?MODULE :: ?MODULE,
@@ -15,14 +20,15 @@ start_link( TopSup, ConnSupSup, ConnSup ) -> proc_lib:start_link( ?MODULE, init_
 		conn_sup :: pid(),
 
 		token_q = queue:new() :: queue:queue( erl_scan:token() ),
-		active_session :: pid() | undefined
+		active_session :: pid() | undefined,
+		active_session_id :: undefined | integer()
 	} ).
 
 init_it( TopSup, ConnSupSup, ConnSup ) ->
 	ok = proc_lib:init_ack( {ok, self()} ),
 	[ IO ] = [ P || {io, P, _, _} <- supervisor:which_children( ConnSup ) ],
 	ok = ?io:acquire( IO ),
-	{ok, Session} = session_create_and_attach( TopSup ),
+	{ok, SessionID, Session} = session_create_and_attach( TopSup ),
 	S0 = #s{
 			top_sup = TopSup,
 			conn_sup_sup = ConnSupSup,
@@ -30,8 +36,11 @@ init_it( TopSup, ConnSupSup, ConnSup ) ->
 
 			io = IO,
 
+			active_session_id = SessionID,
 			active_session = Session
 		},
+
+	?io:write( IO, io_lib:format( "[session: ~p] # ", [ SessionID ] ) ),
 
 	eval_loop( S0 ).
 
@@ -41,6 +50,21 @@ eval_loop( S0 = #s{ io = IO } ) ->
 			handle_io_data( Data, S0 );
 		{?io, closed, IO} ->
 			handle_io_closed( S0 );
+		?post_result( SessionID, RID, Result ) ->
+			?io:write( IO, io_lib:format( "v(~p:~p) = ~p~n", [ SessionID, RID, Result ]) ),
+			?io:write( IO, io_lib:format( "[session: ~p] # ", [ SessionID ] ) ),
+			eval_loop( S0 );
+		{io_request, ReplyTo, ReplyAs, Request} ->
+			case Request of
+				{ put_chars, _Enc, Chars } ->
+					?io:write( IO, Chars );
+				{ put_chars, _Enc, M, F, A } ->
+					?io:write( IO, erlang:apply( M, F, A ) );
+				_ ->
+					?io:write( IO, io_lib:format( "UNKNOWN-IO-REQUEST: ~p~n", [ Request ] ) )
+			end,
+			_ = erlang:send( ReplyTo, {io_reply, ReplyAs, ok} ),
+			eval_loop( S0 );
 		Rubbish ->
 			io:format("Recvd rubbish: ~p~n", [ Rubbish ]),
 			eval_loop( S0 )
@@ -51,17 +75,17 @@ handle_io_closed( #s{ conn_sup_sup = SupSup, conn_sup = Sup } ) ->
 	_ = supervisor:terminate_child( SupSup, Sup ).
 
 
-handle_io_data( Data, S0 = #s{ io = IO, token_q = TokQ0 } ) ->
-	io:format("DataIn: ~p~n", [ Data ]),
-	ok = ?io:write( IO, <<"okay, keep talking...\n">> ),
+handle_io_data( Data, S0 = #s{ io = _IO, token_q = TokQ0 } ) ->
+	% io:format("DataIn: ~p~n", [ Data ]),
+	% ok = ?io:write( IO, <<"okay, keep talking...\n">> ),
 
 	case erl_scan:string( binary_to_list( Data ) ) of
 		{ok, Tokens, _EndPos} ->
-			io:format("\tTokens: ~p~n", [ Tokens ]),
+			% io:format("\tTokens: ~p~n", [ Tokens ]),
 			TokQ1 = lists:foldl( fun queue:in/2, TokQ0, Tokens ),
 			handle_io_data_process_token_queue( S0 #s{ token_q = TokQ1 } );
 		{error, ErrorInfo, ErrorLocation} ->
-			io:format("\tError: ~p (~p)~n", [ ErrorInfo, ErrorLocation ]),
+			% io:format("\tError: ~p (~p)~n", [ ErrorInfo, ErrorLocation ]),
 			eval_loop( S0 )
 	end.
 
@@ -89,12 +113,12 @@ session_create_and_attach( TopSup ) ->
 	SessionID =
 		case [ ID || { {session_sup, ID}, _, _, _ } <- supervisor:which_children( SessionSupSup ) ] of
 			[] -> 1;
-			ExistingIDs = [ _ | _ ] -> erlang:max( ExistingIDs ) + 1
+			ExistingIDs = [ _ | _ ] -> lists:max( ExistingIDs ) + 1
 		end,
 	{ok, SessionSup} = owl_shell_session_sup_sup:start_child( SessionSupSup, SessionID ),
 	[ Session ] = [ P || { session, P, _, _ } <- supervisor:which_children( SessionSup ) ],
 	ok = owl_shell_session:attach( Session, self() ),
-	{ok, Session}.
+	{ok, SessionID, Session}.
 
 token_queue_get_expr( Q ) ->
 	token_queue_get_expr( Q, [] ).

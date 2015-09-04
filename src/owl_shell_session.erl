@@ -34,7 +34,6 @@ attach( Session, Connection ) ->
 	gen_server:call( Session, ?attach( Connection ) ).
 
 post_exprs( Session, Exprs ) ->
-	io:format("owl_shell_session:post_exprs( ~p, ~p )~n", [ Session, Exprs ]),
 	gen_server:cast( Session, ?post_exprs( Exprs ) ).
 
 
@@ -124,14 +123,16 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_call_attach( NewConnection, _GenReplyTo, S = #s{ eval_process = _EP, current_connection = OldConnection }) ->
+handle_call_attach( NewConnection, _GenReplyTo, S = #s{ eval_process = EP, current_connection = OldConnection }) ->
 	case OldConnection of
 		undefined -> ok;
 		_ ->
 			_ = erlang:send( OldConnection, {?MODULE, detached, self()} ),
 			ok
 	end,
-	% true = erlang:group_leader( NewConnection, EP ),
+
+	true = erlang:group_leader( NewConnection, EP ),
+
 	{reply, ok, S #s{ current_connection = NewConnection }}.
 
 handle_cast_post_exprs( Exprs, S = #s{ eval_process_ready = false, exprs_q = EQ0 } ) ->
@@ -146,14 +147,14 @@ handle_cast_exprs_processed( Value, NewBindings, S0 = #s{} ) ->
 	{ok, S2} = maybe_cast_process_next_exprs( S1 ),
 	{noreply, S2}.
 
-maybe_report_value_to_the_connection( Value, S0 = #s{ result_id = RID0, current_connection = Conn } ) ->
+maybe_report_value_to_the_connection( Value, S0 = #s{ session_id = SessionID, result_id = RID0, current_connection = Conn } ) ->
 	RID1 = RID0 + 1,
 	S1 = S0 #s{ result_id = RID1 },
 
 	case Conn of
 		undefined -> ok;
 		_ ->
-			_ = erlang:send( Conn, {value, RID0, Value} )
+			ok = owl_shell_conn:post_result( Conn, SessionID, RID0, Value )
 	end,
 	{ok, S1}.
 
