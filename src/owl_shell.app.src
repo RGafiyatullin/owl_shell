@@ -1,0 +1,11 @@
+{application, owl_shell, [
+    {description, "OWL Shell"},
+    {vsn, "0.1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        gen_unix
+    ]},
+    {env, []}
+ ]}.
