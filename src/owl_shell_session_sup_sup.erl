@@ -2,13 +2,18 @@
 
 -export ([start_link/1, start_child/2]).
 -export ([init/1]).
+-export ([session_sup_child_id/1]).
+
+session_sup_child_id( SessionID ) ->
+	{session_sup, SessionID}.
+
 
 start_link( TopSup ) ->
 	supervisor:start_link( ?MODULE, {session_sup_sup, TopSup} ).
 start_child( SessionSupSup, SessionID ) ->
 	supervisor:start_child( SessionSupSup,
-		{ {session_sup, SessionID},
-			{ owl_shell_session_sup, start_link, [ SessionID ] },
+		{ session_sup_child_id( SessionID ),
+			{ owl_shell_session_sup, start_link, [ SessionSupSup, SessionID ] },
 			temporary, infinity, supervisor, [ owl_shell_session_sup ] } ).
 
 

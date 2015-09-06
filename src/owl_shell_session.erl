@@ -2,7 +2,7 @@
 -behaviour (gen_server).
 
 -export ([
-		init/1, enter_loop/2,
+		init/1, enter_loop/3,
 		handle_call/3,
 		handle_cast/2,
 		handle_info/2,
@@ -11,7 +11,7 @@
 	]).
 
 -export ([
-		start_link/2,
+		start_link/3,
 		attach/2,
 		post_exprs/2
 	]).
@@ -26,8 +26,8 @@
 -define( process_exprs( Exprs ), {?MODULE, process_exprs, Exprs} ).
 -define( exprs_processed( Value, Bindings ), {?MODULE, exprs_processed, Value, Bindings} ).
 
-start_link( SessionSup, SessionID ) ->
-	proc_lib:start_link( ?MODULE, enter_loop, [ SessionSup, SessionID ] ).
+start_link( SessionSupSup, SessionSup, SessionID ) ->
+	proc_lib:start_link( ?MODULE, enter_loop, [ SessionSupSup, SessionSup, SessionID ] ).
 
 
 attach( Session, Connection ) ->
@@ -64,19 +64,23 @@ eval_process_loop( S = #ep{ bindings = Bindings0, session = Session } ) ->
 
 -record(s, {
 		'#module' = ?MODULE :: ?MODULE,
+		session_sup_sup :: pid(),
 		session_sup :: pid(),
 		evals_sup :: pid(),
 		session_id :: term(),
 
 		eval_process :: pid(),
 		bindings :: term(),
+
 		current_connection :: undefined | pid(),
+		current_connection_monref :: undefined | reference(),
+
 		eval_process_ready = false :: boolean(),
 		exprs_q = queue:new() :: queue:queue( term() ),
 		result_id = 1 :: pos_integer()
 	}).
 
-enter_loop( SessionSup, SessionID ) ->
+enter_loop( SessionSupSup, SessionSup, SessionID ) ->
 	ok = proc_lib:init_ack({ok, self()}),
 	Bindings = erl_eval:new_bindings(),
 	[EvalsSup] = [ P || { evals_sup, P, _, _ } <- supervisor:which_children( SessionSup ) ],
@@ -85,6 +89,7 @@ enter_loop( SessionSup, SessionID ) ->
 	_MonRef = erlang:monitor( process, EvalProcess ),
 
 	S0 = #s{
+			session_sup_sup = SessionSupSup,
 			session_sup = SessionSup,
 			evals_sup = EvalsSup,
 			session_id = SessionID,
@@ -110,7 +115,13 @@ handle_cast( ?exprs_processed( Value, NewBindings ), S ) ->
 handle_cast( _Unexpected, S ) ->
 	{noreply, S}.
 
-handle_info( {'DOWN', _MonRef, process, EvalProcessDead, Reason}, S ) ->
+handle_info(
+	{'DOWN', MonRef, process, ConnectionProcessDead, Reason},
+	S = #s{ current_connection_monref = MonRef, current_connection = ConnectionProcessDead }
+) ->
+	handle_info_down_current_connection( ConnectionProcessDead, Reason, S );
+
+handle_info( {'DOWN', _MonRef, process, EvalProcessDead, Reason}, S = #s{ eval_process = EvalProcessDead } ) ->
 	handle_info_down_eval_process( EvalProcessDead, Reason, S );
 
 handle_info( Unexpected, S ) ->
@@ -126,17 +137,24 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_call_attach( NewConnection, _GenReplyTo, S = #s{ eval_process = EP, current_connection = OldConnection }) ->
-	case OldConnection of
-		undefined -> ok;
-		_ ->
+handle_info_down_current_connection( _ConnectionProcessDead, _Reason, S = #s{ session_sup_sup = SupSup, session_id = SessionID } ) ->
+	_ = supervisor:terminate_child( SupSup, owl_shell_session_sup_sup:session_sup_child_id( SessionID ) ),
+	{noreply, S}.
+
+
+handle_call_attach( NewConnection, _GenReplyTo, S = #s{ eval_process = EP, current_connection = OldConnection, current_connection_monref = OldMonRef }) ->
+	case {OldConnection, OldMonRef} of
+		{undefined, undefined} -> ok;
+		{_, OldMonRefDefined} when is_reference( OldMonRefDefined ) ->
+			_ = erlang:demonitor( OldMonRefDefined, [ flush ] ),
 			_ = erlang:send( OldConnection, {?MODULE, detached, self()} ),
 			ok
 	end,
 
 	true = erlang:group_leader( NewConnection, EP ),
 
-	{reply, ok, S #s{ current_connection = NewConnection }}.
+	NewMonRef = erlang:monitor( process, NewConnection ),
+	{reply, ok, S #s{ current_connection = NewConnection, current_connection_monref = NewMonRef }}.
 
 handle_cast_post_exprs( Exprs, S = #s{ eval_process_ready = false, exprs_q = EQ0 } ) ->
 	EQ1 = queue:in( Exprs, EQ0 ),
