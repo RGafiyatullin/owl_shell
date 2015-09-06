@@ -5,7 +5,11 @@
 -export ([init/1]).
 
 -spec start_link( UnixSocketFile :: string() ) -> {ok, pid()} | {error, Reason :: term()}.
+start_link( undefined ) -> supervisor:start_link( ?MODULE, dummy );
 start_link( UnixSocketFile ) -> supervisor:start_link( ?MODULE, { top_sup, UnixSocketFile } ).
+
+init( dummy ) ->
+	{ok, { {one_for_one, 0, 1}, [] }};
 
 init( { top_sup, UnixSocketFile } ) ->
 	SupType = {one_for_all, 0, 1},
