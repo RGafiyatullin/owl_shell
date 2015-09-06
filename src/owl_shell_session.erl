@@ -80,8 +80,8 @@ enter_loop( SessionSup, SessionID ) ->
 	ok = proc_lib:init_ack({ok, self()}),
 	Bindings = erl_eval:new_bindings(),
 	[EvalsSup] = [ P || { evals_sup, P, _, _ } <- supervisor:which_children( SessionSup ) ],
-	{ok, EvalProcess} = supervisor:start_child( EvalsSup, [ self(), Bindings ] ),
 
+	{ok, EvalProcess} = supervisor:start_child( EvalsSup, [ self(), Bindings ] ),
 	_MonRef = erlang:monitor( process, EvalProcess ),
 
 	S0 = #s{
@@ -109,6 +109,9 @@ handle_cast( ?exprs_processed( Value, NewBindings ), S ) ->
 
 handle_cast( _Unexpected, S ) ->
 	{noreply, S}.
+
+handle_info( {'DOWN', _MonRef, process, EvalProcessDead, Reason}, S ) ->
+	handle_info_down_eval_process( EvalProcessDead, Reason, S );
 
 handle_info( Unexpected, S ) ->
 	io:format("Unexpected info: ~p", [ Unexpected ]),
@@ -146,6 +149,29 @@ handle_cast_exprs_processed( Value, NewBindings, S0 = #s{} ) ->
 	{ok, S1} = maybe_report_value_to_the_connection( Value, S0 #s{ bindings = NewBindings } ),
 	{ok, S2} = maybe_cast_process_next_exprs( S1 ),
 	{noreply, S2}.
+
+handle_info_down_eval_process( EvalProcessDead, Reason, S0 = #s{} ) ->
+	{ok, S1} = maybe_report_error_to_the_connection( EvalProcessDead, Reason, S0 ),
+	{ok, S2} = start_fresh_eval_process( S1 ),
+	{ok, S3} = maybe_cast_process_next_exprs( S2 ),
+	{noreply, S3}.
+
+start_fresh_eval_process( S0 = #s{ evals_sup = EvalsSup, bindings = Bindings } ) ->
+	{ok, EP} = supervisor:start_child( EvalsSup, [ self(), Bindings ] ),
+	_MonRef = erlang:monitor( process, EP ),
+	{ok, S0 #s{ eval_process = EP }}.
+
+maybe_report_error_to_the_connection( EvalProcessDead, Reason, S0 = #s{ session_id = SessionID, result_id = RID0, current_connection = Conn } ) ->
+	RID1 = RID0 + 1,
+	S1 = S0 #s{ result_id = RID1 },
+
+	case Conn of
+		undefined -> ok;
+		_ ->
+			ok = owl_shell_conn:post_error( Conn, SessionID, RID0, EvalProcessDead, Reason )
+	end,
+	{ok, S1}.
+
 
 maybe_report_value_to_the_connection( Value, S0 = #s{ session_id = SessionID, result_id = RID0, current_connection = Conn } ) ->
 	RID1 = RID0 + 1,

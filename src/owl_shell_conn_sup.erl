@@ -13,7 +13,6 @@ init( {conn_sup, TopSup, ConnSupSup, FD} ) ->
 			{ io, {owl_shell_conn_io, start_link, [ FD ]}, permanent, 1000, worker, [ owl_shell_conn_io ] },
 			{ connection, {owl_shell_conn, start_link, [ TopSup, ConnSupSup, self() ] }, permanent, 1000, worker, [ owl_shell_conn ] }
 		],
-	io:format(" - owl_shell_conn_sup (~p) => { ~p, ~p } ~n", [ FD, SupType, ChildSpecs ]),
 	{ok, {SupType, ChildSpecs}}.
 
 
