@@ -142,7 +142,7 @@ session_create_and_attach( TopSup ) ->
 	{ok, SID, Session}.
 
 io_write_prompt( S0 = #s{ io = IO, active_session_id = SID } ) ->
-	?io:write( IO, io_lib:format( "[session: ~p] # ", [ SID ] ) ),
+	?io:write( IO, io_lib:format( "[~p session: ~p] # ", [ node(), SID ] ) ),
 	{ok, S0}.
 
 token_queue_get_expr( Q ) ->

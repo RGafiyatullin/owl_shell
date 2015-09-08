@@ -8,5 +8,5 @@
         gen_unix
     ]},
     {mod, {owl_shell_app, []}},
-    {env, []}
+    {env, [{uds_file, "test.sock"}]}
  ]}.
