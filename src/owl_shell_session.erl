@@ -171,8 +171,9 @@ handle_cast_exprs_processed( Value, NewBindings, S0 = #s{} ) ->
 handle_info_down_eval_process( EvalProcessDead, Reason, S0 = #s{} ) ->
 	{ok, S1} = maybe_report_error_to_the_connection( EvalProcessDead, Reason, S0 ),
 	{ok, S2} = start_fresh_eval_process( S1 ),
-	{ok, S3} = maybe_cast_process_next_exprs( S2 ),
-	{noreply, S3}.
+	{ok, S3} = maybe_set_group_leader_at_eval_process( S2 ),
+	{ok, S4} = maybe_cast_process_next_exprs( S3 ),
+	{noreply, S4}.
 
 start_fresh_eval_process( S0 = #s{ evals_sup = EvalsSup, bindings = Bindings } ) ->
 	{ok, EP} = supervisor:start_child( EvalsSup, [ self(), Bindings ] ),
@@ -190,6 +191,12 @@ maybe_report_error_to_the_connection( EvalProcessDead, Reason, S0 = #s{ session_
 	end,
 	{ok, S1}.
 
+maybe_set_group_leader_at_eval_process( S0 = #s{ current_connection = Conn, eval_process = EP } ) ->
+	case Conn of
+		undefined -> true = erlang:group_leader( erlang:group_leader(), EP );
+		Connection when is_pid( Connection ) -> true = erlang:group_leader( Connection, EP )
+	end,
+	{ok, S0}.
 
 maybe_report_value_to_the_connection( Value, S0 = #s{ session_id = SessionID, result_id = RID0, current_connection = Conn } ) ->
 	RID1 = RID0 + 1,
