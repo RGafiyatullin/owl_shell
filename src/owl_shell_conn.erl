@@ -101,7 +101,7 @@ handle_info_io_data( IO, Data, S0 = #s{ io = IO, token_q = TokQ0 } ) ->
 			{noreply, S0}
 	end.
 
-handle_info_io_data_process_token_queue( S0 = #s{ token_q = TokQ0, active_session = Session } ) ->
+handle_info_io_data_process_token_queue( S0 = #s{ token_q = TokQ0, active_session = Session, io = IO } ) ->
 	case token_queue_get_expr( TokQ0 ) of
 		error -> {noreply, S0};
 		{ok, ExprTokens, TokQ1} ->
@@ -111,8 +111,7 @@ handle_info_io_data_process_token_queue( S0 = #s{ token_q = TokQ0, active_sessio
 					ok = owl_shell_session:post_exprs( Session, Exprs ),
 					handle_info_io_data_process_token_queue( S1 );
 				{error, {Line, erl_parse, ErrorIOL}} ->
-					%% TODO: Report syntax error into the session
-					io:format("\tError: (~p) ~s~n", [ Line, ErrorIOL ]),
+					?io:write( IO, io_lib:format("* ~p: ~s~n", [ Line, ErrorIOL ]) ),
 					handle_info_io_data_process_token_queue( S1 )
 			end
 	end.
@@ -161,22 +160,27 @@ handle_cast_post_error( SID, RID, EvalProcessDead, Reason, S0 = #s{ io = IO } ) 
 
 handle_info_io_request( ReplyTo, ReplyAs, Request, S = #s{ io = IO } ) ->
 	% io:format("~p: Inbound IO-request: ~p~n", [ self(), Request ]),
-	case Request of
-		{ put_chars, Chars } ->
-				?io:write( IO, Chars );
+	ReplyWith =
+		case Request of
+			{ put_chars, Chars } ->
+				_Reply = ?io:write( IO, Chars );
 
-		{ put_chars, _Enc, Chars } ->
-			?io:write( IO, Chars );
+			{ put_chars, _Enc, Chars } ->
+				_Reply = ?io:write( IO, Chars );
 
-		{ put_chars, _Enc, M, F, A } ->
-			?io:write( IO, erlang:apply( M, F, A ) );
+			{ put_chars, _Enc, M, F, A } ->
+				_Reply = ?io:write( IO, erlang:apply( M, F, A ) );
 
-		{ put_chars, M, F, A } ->
-			?io:write( IO, erlang:apply( M, F, A ) );
+			{ put_chars, M, F, A } ->
+				_Reply = ?io:write( IO, erlang:apply( M, F, A ) );
 
-		Unexpected ->
-			io:format("Unexpected IO-request: ~p~n", [Unexpected])
-	end,
-	_ = erlang:send( ReplyTo, {io_reply, ReplyAs, ok} ),
+			getopts ->
+				_Reply = [ {binary, false}, {encoding, unicode} ];
+
+			_Unexpected ->
+				% io:format("Unexpected IO-request: ~p~n", [Unexpected]),
+				{error, enotsup}
+		end,
+	_ = erlang:send( ReplyTo, {io_reply, ReplyAs, ReplyWith} ),
 	{noreply, S}.
 

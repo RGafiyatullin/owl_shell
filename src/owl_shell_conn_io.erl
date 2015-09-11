@@ -75,6 +75,7 @@ try_reading_then_loop( LoopF, S = #s{ fd = FD, cp = CP } ) ->
 	end.
 
 data_write( DataIOL, S = #s{ fd = FD } ) ->
+	% ok = io:format("~p:data_write( ~p, _ )~n", [ ?MODULE, DataIOL ]),
 	Data = iolist_to_binary( [DataIOL] ),
 	case procket:write( FD, Data ) of
 		{error, epipe} -> socket_closed( S );
